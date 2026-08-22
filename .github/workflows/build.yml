@@ -1,0 +1,54 @@
+name: Build ImmortalWrt
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout My Repository Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Write Uci Default Config
+        env:
+          UCI_DEFAULT_CONFIG: ${{ secrets.UCI_DEFAULT_CONFIG }}
+        run: |
+          echo "${UCI_DEFAULT_CONFIG}" > target/linux/mediatek/filogic/base-files/etc/uci-defaults/zz_config
+
+      - name: Initialize Build Environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo bash -c 'bash <(curl -s https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          sudo timedatectl set-timezone "Asia/Shanghai"
+
+      - name: Update and Install Feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load Configuration
+        run: |
+          cp -f defconfig/low-mem-512m/mt7987-mt7992-be7200.config .config
+          make defconfig
+
+      - name: Compile Firmware
+        run: |
+          make -j$(nproc) -s V=s
+
+      - name: Encrypt Artifacts
+        env:
+          ENCRYPT_PASSWORD: ${{ secrets.ENCRYPT_PASSWORD }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y p7zip-full
+          cd bin/targets/mediatek/filogic
+          7z a -p"${ENCRYPT_PASSWORD}" firmware.7z *.bin
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-be12pro
+          path: bin/targets/mediatek/filogic/firmware.7z
